@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Wand2, ArrowRight, Copy, Check, Loader2 } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Wand2, ArrowRight, Copy, Check, Loader2, X } from 'lucide-react';
 import { optimizeScript } from '../services/geminiService';
 import { OptimizationResult } from '../types';
 
@@ -9,17 +9,30 @@ interface ScriptEditorProps {
   onOptimizationComplete: (result: OptimizationResult) => void;
 }
 
+const quickPrompts = [
+  { label: '/English output', desc: '（英文输出）', value: 'Output in English' },
+  { label: '/Simplify logic', desc: '（简化逻辑）', value: 'Simplify logic' },
+  { label: '/Add comments', desc: '（补充注释）', value: 'Add comments' },
+  { label: '/Improve readability', desc: '（提升可读性）', value: 'Improve readability' },
+  { label: '/Fix syntax errors', desc: '（修复语法错误）', value: 'Fix syntax errors' },
+];
+
 const ScriptEditor: React.FC<ScriptEditorProps> = ({ currentScript, onScriptChange, onOptimizationComplete }) => {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [result, setResult] = useState<OptimizationResult | null>(null);
   const [copied, setCopied] = useState(false);
+  
+  // Pre-Prompt State
+  const [customInstruction, setCustomInstruction] = useState("");
+  const [showQuickPrompts, setShowQuickPrompts] = useState(false);
+  const promptInputRef = useRef<HTMLInputElement>(null);
 
   const handleOptimize = async () => {
     if (!currentScript.trim()) return;
     
     setIsOptimizing(true);
     try {
-      const data = await optimizeScript(currentScript);
+      const data = await optimizeScript(currentScript, customInstruction);
       const optimizationResult: OptimizationResult = {
         original: currentScript,
         optimized: data.optimized,
@@ -49,6 +62,31 @@ const ScriptEditor: React.FC<ScriptEditorProps> = ({ currentScript, onScriptChan
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handlePromptChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setCustomInstruction(val);
+    
+    // Trigger quick prompts on '/'
+    if (val.endsWith('/')) {
+      setShowQuickPrompts(true);
+    } else {
+      setShowQuickPrompts(false);
+    }
+  };
+
+  const selectQuickPrompt = (promptVal: string) => {
+    let newVal = customInstruction;
+    // Replace the trailing '/' with the prompt value
+    if (newVal.endsWith('/')) {
+      newVal = newVal.slice(0, -1) + promptVal;
+    } else {
+      newVal = promptVal;
+    }
+    setCustomInstruction(newVal);
+    setShowQuickPrompts(false);
+    promptInputRef.current?.focus();
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full p-4 lg:p-8">
       {/* Input Section */}
@@ -57,8 +95,49 @@ const ScriptEditor: React.FC<ScriptEditorProps> = ({ currentScript, onScriptChan
           <h2 className="text-xl font-semibold text-slate-800">Original Draft</h2>
           <span className="text-xs text-slate-500 font-mono">{currentScript.length} chars</span>
         </div>
+
+        {/* Pre-Prompt Input Area */}
+        <div className="relative z-20">
+          <input
+            ref={promptInputRef}
+            type="text"
+            value={customInstruction}
+            onChange={handlePromptChange}
+            onBlur={() => setTimeout(() => setShowQuickPrompts(false), 200)}
+            placeholder='输入优化指令（例如："用英语输出"），按 / 呼出常用提示词'
+            className="w-full h-[40px] px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-slate-700 shadow-sm transition-shadow"
+          />
+          
+          {/* Clear Button */}
+          {customInstruction && (
+            <button
+              onClick={() => { setCustomInstruction(''); setShowQuickPrompts(false); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors"
+              title="清除指令"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Quick Prompts Dropdown */}
+          {showQuickPrompts && (
+            <div className="absolute top-full left-0 mt-[2px] w-full bg-white border border-slate-200 rounded-md shadow-lg py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+              {quickPrompts.map((p, i) => (
+                <button
+                  key={i}
+                  onMouseDown={(e) => { e.preventDefault(); selectQuickPrompt(p.value); }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-[#f5f5f5] active:bg-[#e8f0fe] flex items-center gap-2 group transition-colors"
+                >
+                  <span className="font-medium text-slate-700 group-hover:text-indigo-700">{p.label}</span>
+                  <span className="text-slate-400 text-xs group-hover:text-indigo-400">{p.desc}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <textarea
-          className="flex-1 w-full p-4 rounded-xl border border-slate-200 bg-white resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-slate-700 leading-relaxed shadow-sm"
+          className="flex-1 w-full p-4 rounded-xl border border-slate-200 bg-white resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-slate-700 leading-relaxed shadow-sm font-sans"
           placeholder="Paste your script here (English or Chinese)..."
           value={currentScript}
           onChange={(e) => onScriptChange(e.target.value)}

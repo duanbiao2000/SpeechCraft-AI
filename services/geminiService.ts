@@ -20,18 +20,20 @@ const getAiClient = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
-export const optimizeScript = async (text: string): Promise<any> => {
+export const optimizeScript = async (text: string, customInstruction?: string): Promise<any> => {
   const ai = getAiClient();
   
   const prompt = `
     You are an expert speechwriter and copywriter. Analyze the following text and optimize it for oral delivery (spoken word/video script).
     
     Input Text: "${text}"
+    ${customInstruction ? `\nUser Custom Instruction: "${customInstruction}"` : ''}
     
     Instructions:
     1. Detect the language of the input text (English or Chinese).
     2. If the input is Chinese, optimize it for natural spoken Chinese (口语化), avoiding written-style stiffness (书面语). The "optimized" text and "rationale" MUST be in Chinese.
     3. If the input is English, optimize for natural spoken English. The "optimized" text and "rationale" MUST be in English.
+    ${customInstruction ? '4. STRICTLY follow the User Custom Instruction provided above. It overrides default language behavior if conflicting.' : ''}
 
     Return a JSON object with the following structure:
     {
