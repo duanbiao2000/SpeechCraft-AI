@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Play, RefreshCcw, Award, BarChart2, Volume2, Loader2 } from 'lucide-react';
-import { analyzeSpeech, generateDemonstrationAudio } from '../services/geminiService';
+import { Mic, Square, Play, RefreshCcw, Award, BarChart2, Volume2, Loader2, StopCircle } from 'lucide-react';
+import { analyzeSpeech, generateDemonstrationAudio, playRawAudio } from '../services/geminiService';
 import { SpeechAnalysis } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -14,14 +14,33 @@ const PracticeStudio: React.FC<PracticeStudioProps> = ({ script }) => {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<SpeechAnalysis | null>(null);
-  const [demoAudioUrl, setDemoAudioUrl] = useState<string | null>(null);
+  
+  // Demo Audio State
+  const [demoAudioData, setDemoAudioData] = useState<string | null>(null);
   const [isGeneratingDemo, setIsGeneratingDemo] = useState(false);
+  const [isPlayingDemo, setIsPlayingDemo] = useState(false);
+  const stopDemoRef = useRef<(() => void) | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startTimeRef = useRef<number>(0);
 
+  // Cleanup audio context on unmount
+  useEffect(() => {
+    return () => {
+      if (stopDemoRef.current) {
+        stopDemoRef.current();
+      }
+    };
+  }, []);
+
   const startRecording = async () => {
+    // Stop demo if playing
+    if (isPlayingDemo && stopDemoRef.current) {
+      stopDemoRef.current();
+      setIsPlayingDemo(false);
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
@@ -72,12 +91,32 @@ const PracticeStudio: React.FC<PracticeStudioProps> = ({ script }) => {
     }
   };
 
-  const handleGenerateDemo = async () => {
+  const handleGenerateAndPlayDemo = async () => {
+    if (isPlayingDemo && stopDemoRef.current) {
+      stopDemoRef.current();
+      setIsPlayingDemo(false);
+      return;
+    }
+
+    if (demoAudioData) {
+      // Play existing
+      setIsPlayingDemo(true);
+      const stopFn = await playRawAudio(demoAudioData, () => setIsPlayingDemo(false));
+      stopDemoRef.current = stopFn;
+      return;
+    }
+
     if (!script.trim()) return;
+    
     setIsGeneratingDemo(true);
     try {
-      const url = await generateDemonstrationAudio(script.substring(0, 500)); // Limit length for demo
-      setDemoAudioUrl(url);
+      const base64Data = await generateDemonstrationAudio(script.substring(0, 500)); // Limit length for demo
+      setDemoAudioData(base64Data);
+      
+      // Auto play after generation
+      setIsPlayingDemo(true);
+      const stopFn = await playRawAudio(base64Data, () => setIsPlayingDemo(false));
+      stopDemoRef.current = stopFn;
     } catch (e) {
       alert("Could not generate AI demo.");
     } finally {
@@ -99,18 +138,24 @@ const PracticeStudio: React.FC<PracticeStudioProps> = ({ script }) => {
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-semibold text-slate-700 uppercase tracking-wide">Teleprompter</h3>
             <button 
-              onClick={handleGenerateDemo}
+              onClick={handleGenerateAndPlayDemo}
               disabled={isGeneratingDemo || !script}
-              className="text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1 disabled:opacity-50"
+              className={`text-sm px-3 py-1.5 rounded-full font-medium transition-colors flex items-center gap-1.5 border ${
+                isPlayingDemo 
+                  ? 'bg-indigo-100 text-indigo-700 border-indigo-200' 
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
             >
-              {isGeneratingDemo ? <Loader2 className="w-4 h-4 animate-spin"/> : <Volume2 className="w-4 h-4" />}
-              {demoAudioUrl ? "Regenerate AI Demo" : "Listen to AI Demo"}
+              {isGeneratingDemo ? (
+                <Loader2 className="w-4 h-4 animate-spin"/>
+              ) : isPlayingDemo ? (
+                <StopCircle className="w-4 h-4 fill-current" />
+              ) : (
+                <Volume2 className="w-4 h-4" />
+              )}
+              {isGeneratingDemo ? "Generating..." : isPlayingDemo ? "Stop AI Demo" : demoAudioData ? "Play AI Demo" : "Generate AI Demo"}
             </button>
           </div>
-          
-          {demoAudioUrl && (
-             <audio src={demoAudioUrl} controls className="w-full mb-4 h-10" />
-          )}
 
           <div className="flex-1 bg-white rounded-2xl shadow-inner p-8 overflow-y-auto border border-slate-200">
              <p className="text-3xl lg:text-4xl font-medium text-slate-800 leading-relaxed">
@@ -206,7 +251,7 @@ const PracticeStudio: React.FC<PracticeStudioProps> = ({ script }) => {
                   <ul className="space-y-2">
                     {analysis.feedback.map((tip, idx) => (
                       <li key={idx} className="flex items-start gap-3 text-sm text-slate-600 bg-slate-50 p-3 rounded-lg">
-                        <div className="min-w-[6px] h-[6px] rounded-full bg-indigo-500 mt-1.5"></div>
+                        <div className="min-w-[6px] h-[6px] rounded-full bg-indigo-50 mt-1.5"></div>
                         {tip}
                       </li>
                     ))}

@@ -28,6 +28,7 @@ const ScriptEditor: React.FC<ScriptEditorProps> = ({ currentScript, onScriptChan
   const promptInputRef = useRef<HTMLInputElement>(null);
 
   const handleOptimize = async () => {
+    // Allow optimizing if script exists, even if customInstruction is empty
     if (!currentScript.trim()) return;
     
     setIsOptimizing(true);
@@ -66,23 +67,33 @@ const ScriptEditor: React.FC<ScriptEditorProps> = ({ currentScript, onScriptChan
     const val = e.target.value;
     setCustomInstruction(val);
     
-    // Trigger quick prompts on '/'
+    // Interaction Logic:
+    // 1. Show if user types exactly '/' at the end (or is just starting with '/')
+    // 2. "Input non-/ other characters -> if panel already popped up then automatically close"
     if (val.endsWith('/')) {
       setShowQuickPrompts(true);
     } else {
-      setShowQuickPrompts(false);
+      if (showQuickPrompts) setShowQuickPrompts(false);
     }
   };
 
-  const selectQuickPrompt = (promptVal: string) => {
+  const selectQuickPrompt = (promptValue: string) => {
+    // Replace the triggering '/' with the selected prompt
+    // If the instruction ends with '/', replace it. Otherwise just append or replace (simple logic: replace trailing /)
     let newVal = customInstruction;
-    // Replace the trailing '/' with the prompt value
     if (newVal.endsWith('/')) {
-      newVal = newVal.slice(0, -1) + promptVal;
+      newVal = newVal.slice(0, -1) + promptValue;
     } else {
-      newVal = promptVal;
+      newVal = promptValue;
     }
+    
     setCustomInstruction(newVal);
+    setShowQuickPrompts(false);
+    promptInputRef.current?.focus();
+  };
+
+  const clearInstruction = () => {
+    setCustomInstruction('');
     setShowQuickPrompts(false);
     promptInputRef.current?.focus();
   };
@@ -98,35 +109,40 @@ const ScriptEditor: React.FC<ScriptEditorProps> = ({ currentScript, onScriptChan
 
         {/* Pre-Prompt Input Area */}
         <div className="relative z-20">
-          <input
-            ref={promptInputRef}
-            type="text"
-            value={customInstruction}
-            onChange={handlePromptChange}
-            onBlur={() => setTimeout(() => setShowQuickPrompts(false), 200)}
-            placeholder='输入优化指令（例如："用英语输出"），按 / 呼出常用提示词'
-            className="w-full h-[40px] px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-slate-700 shadow-sm transition-shadow"
-          />
-          
-          {/* Clear Button */}
-          {customInstruction && (
-            <button
-              onClick={() => { setCustomInstruction(''); setShowQuickPrompts(false); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors"
-              title="清除指令"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+          <div className="relative">
+            <input
+              ref={promptInputRef}
+              type="text"
+              value={customInstruction}
+              onChange={handlePromptChange}
+              onBlur={() => {
+                // Delay hiding to allow clicking the dropdown items
+                setTimeout(() => setShowQuickPrompts(false), 200);
+              }}
+              placeholder='输入优化指令（例如："用英语输出"），按 / 呼出常用提示词'
+              className="w-full h-[40px] px-3 py-2 pr-8 rounded-lg border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none text-slate-700 shadow-sm transition-shadow placeholder:text-slate-400"
+            />
+            
+            {/* Clear Button - visible when there is content */}
+            {customInstruction && (
+              <button
+                onClick={clearInstruction}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors z-10"
+                title="清除指令"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
 
           {/* Quick Prompts Dropdown */}
           {showQuickPrompts && (
-            <div className="absolute top-full left-0 mt-[2px] w-full bg-white border border-slate-200 rounded-md shadow-lg py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+            <div className="absolute top-full left-0 mt-[2px] w-full bg-white border border-slate-200 rounded-md shadow-lg py-1 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
               {quickPrompts.map((p, i) => (
                 <button
                   key={i}
                   onMouseDown={(e) => { e.preventDefault(); selectQuickPrompt(p.value); }}
-                  className="w-full text-left px-4 py-2 text-sm hover:bg-[#f5f5f5] active:bg-[#e8f0fe] flex items-center gap-2 group transition-colors"
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-[#f5f5f5] active:bg-[#e8f0fe] flex items-center flex-wrap gap-2 group transition-colors"
                 >
                   <span className="font-medium text-slate-700 group-hover:text-indigo-700">{p.label}</span>
                   <span className="text-slate-400 text-xs group-hover:text-indigo-400">{p.desc}</span>
@@ -142,6 +158,7 @@ const ScriptEditor: React.FC<ScriptEditorProps> = ({ currentScript, onScriptChan
           value={currentScript}
           onChange={(e) => onScriptChange(e.target.value)}
         />
+        
         <button
           onClick={handleOptimize}
           disabled={isOptimizing || !currentScript.trim()}

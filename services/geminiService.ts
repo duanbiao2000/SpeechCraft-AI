@@ -20,6 +20,79 @@ const getAiClient = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
+let audioContext: AudioContext | null = null;
+
+const getAudioContext = () => {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+  }
+  return audioContext;
+};
+
+function decode(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function decodePCM16(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number = 24000,
+  numChannels: number = 1,
+): Promise<AudioBuffer> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      // Convert PCM16 to Float32
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
+
+export const playRawAudio = async (base64String: string, onEnded?: () => void): Promise<() => void> => {
+  try {
+    const ctx = getAudioContext();
+    
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+
+    const bytes = decode(base64String);
+    const buffer = await decodePCM16(bytes, ctx);
+    
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    
+    if (onEnded) {
+      source.addEventListener('ended', onEnded);
+    }
+
+    source.start();
+
+    return () => {
+      try { 
+        source.stop(); 
+        source.disconnect();
+      } catch(e) {}
+    };
+  } catch (e) {
+    console.error("Audio playback error", e);
+    if (onEnded) onEnded();
+    return () => {};
+  }
+};
+
 export const optimizeScript = async (text: string, customInstruction?: string): Promise<any> => {
   const ai = getAiClient();
   
@@ -143,7 +216,8 @@ export const generateDemonstrationAudio = async (text: string): Promise<string> 
     const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!base64Audio) throw new Error("No audio generated");
     
-    return `data:audio/wav;base64,${base64Audio}`;
+    // Return raw base64 string (PCM) instead of data URI
+    return base64Audio;
   } catch (error) {
     console.error("TTS error:", error);
     throw error;
