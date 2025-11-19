@@ -1,0 +1,7 @@
+{
+  "name": "SpeechCraft AI",
+  "description": "An AI-powered script optimization and speech coaching application using Google Gemini.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
