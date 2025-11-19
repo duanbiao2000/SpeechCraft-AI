@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Play, RefreshCcw, Award, BarChart2, Volume2, Loader2, StopCircle } from 'lucide-react';
-import { analyzeSpeech, generateDemonstrationAudio, playRawAudio } from '../services/geminiService';
+import { Mic, Square, Play, RefreshCcw, Award, BarChart2, Volume2, Loader2, StopCircle, ChevronDown, Download, Check } from 'lucide-react';
+import { analyzeSpeech, generateDemonstrationAudio, playRawAudio, VOICE_OPTIONS, base64ToWavBlob } from '../services/geminiService';
 import { SpeechAnalysis } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
@@ -21,9 +21,26 @@ const PracticeStudio: React.FC<PracticeStudioProps> = ({ script }) => {
   const [isPlayingDemo, setIsPlayingDemo] = useState(false);
   const stopDemoRef = useRef<(() => void) | null>(null);
 
+  // Voice Selection State
+  const [selectedVoice, setSelectedVoice] = useState(VOICE_OPTIONS[0]);
+  const [isVoiceDropdownOpen, setIsVoiceDropdownOpen] = useState(false);
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const startTimeRef = useRef<number>(0);
+
+  // Click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsVoiceDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Cleanup audio context on unmount
   useEffect(() => {
@@ -91,6 +108,23 @@ const PracticeStudio: React.FC<PracticeStudioProps> = ({ script }) => {
     }
   };
 
+  const handlePreviewVoice = async (e: React.MouseEvent, voice: typeof VOICE_OPTIONS[0]) => {
+    e.stopPropagation(); // Prevent selection when clicking preview
+    if (previewingVoiceId === voice.id) return;
+
+    setPreviewingVoiceId(voice.id);
+    try {
+      // Simple bilingual preview text
+      const previewText = "Hello, this is a voice preview. 您好，这是语音示例。";
+      const audioData = await generateDemonstrationAudio(previewText, voice.id);
+      await playRawAudio(audioData);
+    } catch (e) {
+      console.error("Preview failed", e);
+    } finally {
+      setPreviewingVoiceId(null);
+    }
+  };
+
   const handleGenerateAndPlayDemo = async () => {
     if (isPlayingDemo && stopDemoRef.current) {
       stopDemoRef.current();
@@ -110,7 +144,7 @@ const PracticeStudio: React.FC<PracticeStudioProps> = ({ script }) => {
     
     setIsGeneratingDemo(true);
     try {
-      const base64Data = await generateDemonstrationAudio(script.substring(0, 500)); // Limit length for demo
+      const base64Data = await generateDemonstrationAudio(script.substring(0, 500), selectedVoice.id); // Limit length for demo
       setDemoAudioData(base64Data);
       
       // Auto play after generation
@@ -124,6 +158,21 @@ const PracticeStudio: React.FC<PracticeStudioProps> = ({ script }) => {
     }
   };
 
+  const handleDownload = () => {
+    if (!demoAudioData) return;
+    const blob = base64ToWavBlob(demoAudioData);
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14); // YYYYMMDDHHMMSS
+    a.href = url;
+    a.download = `ai_voice_${timestamp}.wav`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const scoreData = analysis ? [
     { name: 'Pacing', score: analysis.pacingScore, color: '#8884d8' },
     { name: 'Clarity', score: analysis.clarityScore, color: '#82ca9d' },
@@ -135,26 +184,118 @@ const PracticeStudio: React.FC<PracticeStudioProps> = ({ script }) => {
         
         {/* Left: Teleprompter */}
         <div className="lg:col-span-2 p-6 lg:p-8 bg-slate-50 flex flex-col h-full border-r border-slate-200 overflow-hidden">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-slate-700 uppercase tracking-wide">Teleprompter</h3>
-            <button 
-              onClick={handleGenerateAndPlayDemo}
-              disabled={isGeneratingDemo || !script}
-              className={`text-sm px-3 py-1.5 rounded-full font-medium transition-colors flex items-center gap-1.5 border ${
-                isPlayingDemo 
-                  ? 'bg-indigo-100 text-indigo-700 border-indigo-200' 
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              {isGeneratingDemo ? (
-                <Loader2 className="w-4 h-4 animate-spin"/>
-              ) : isPlayingDemo ? (
-                <StopCircle className="w-4 h-4 fill-current" />
-              ) : (
-                <Volume2 className="w-4 h-4" />
+          
+          {/* Toolbar Header */}
+          <div className="flex flex-col gap-4 mb-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-slate-700 uppercase tracking-wide">Teleprompter</h3>
+            </div>
+
+            {/* AI Voice Toolbar */}
+            <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+              
+              {/* Voice Selector Dropdown */}
+              <div className="relative" ref={dropdownRef}>
+                <button 
+                  onClick={() => setIsVoiceDropdownOpen(!isVoiceDropdownOpen)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-slate-50 text-slate-700 text-sm font-medium transition-colors border border-transparent hover:border-slate-200"
+                >
+                  <Volume2 className="w-4 h-4 text-indigo-500" />
+                  <span>{selectedVoice.name}</span>
+                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                </button>
+                
+                {isVoiceDropdownOpen && (
+                  <div className="absolute top-full left-0 mt-1 w-72 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
+                    <div className="p-2 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wide">
+                      Select Voice
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {VOICE_OPTIONS.map((voice) => (
+                        <div 
+                          key={voice.id}
+                          onClick={() => {
+                            setSelectedVoice(voice);
+                            setIsVoiceDropdownOpen(false);
+                            // Clear previous demo if voice changes
+                            if (demoAudioData) setDemoAudioData(null);
+                          }}
+                          className={`flex items-center justify-between px-4 py-3 cursor-pointer transition-colors ${selectedVoice.id === voice.id ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700'}`}
+                        >
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium">{voice.name}</span>
+                            <span className="text-xs opacity-70">{voice.label.split('(')[1].replace(')', '')}</span>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                            {selectedVoice.id === voice.id && <Check className="w-4 h-4 text-indigo-600" />}
+                            <button
+                              onClick={(e) => handlePreviewVoice(e, voice)}
+                              className="p-1.5 rounded-full hover:bg-indigo-100 text-indigo-600 transition-colors"
+                              title="Preview Voice"
+                            >
+                              {previewingVoiceId === voice.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Play className="w-3 h-3 fill-current" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="h-6 w-px bg-slate-200 mx-1"></div>
+
+              {/* Generate / Play Button */}
+              <button 
+                onClick={handleGenerateAndPlayDemo}
+                disabled={isGeneratingDemo || !script}
+                className={`text-sm px-4 py-2 rounded-md font-medium transition-all flex items-center gap-2 ${
+                  isPlayingDemo 
+                    ? 'bg-red-50 text-red-600 hover:bg-red-100' 
+                    : !demoAudioData 
+                      ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm hover:shadow-md'
+                      : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                } disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none`}
+              >
+                {isGeneratingDemo ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin"/>
+                    <span>Generating...</span>
+                  </>
+                ) : isPlayingDemo ? (
+                  <>
+                    <StopCircle className="w-4 h-4 fill-current" />
+                    <span>Stop</span>
+                  </>
+                ) : demoAudioData ? (
+                  <>
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Play Demo</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4" />
+                    <span>Generate Audio</span>
+                  </>
+                )}
+              </button>
+
+              {/* Download Button (Visible only if audio exists) */}
+              {demoAudioData && (
+                <button
+                  onClick={handleDownload}
+                  className="p-2 rounded-md text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                  title="Download Audio (WAV)"
+                >
+                  <Download className="w-5 h-5" />
+                </button>
               )}
-              {isGeneratingDemo ? "Generating..." : isPlayingDemo ? "Stop AI Demo" : demoAudioData ? "Play AI Demo" : "Generate AI Demo"}
-            </button>
+            </div>
           </div>
 
           <div className="flex-1 bg-white rounded-2xl shadow-inner p-8 overflow-y-auto border border-slate-200">
